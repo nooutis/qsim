@@ -4,13 +4,13 @@
 
 # Variabili del compilatore e flag
 CC = gcc
-CFLAGS = -Wall -Wextra -pthread -O2
+CFLAGS = -g -Wall -Wextra -pthread -O2
 # LDFLAGS per GSL, libreria matematica e thread
 LDFLAGS = $(shell gsl-config --libs) -lm -lpthread
 
 # File e target
 TARGET = qsim
-OBJ = main.o parser.o thread.o memory.o
+OBJ = main.o parser.o thread.o memory.o measurement.o
 
 # Dichiarazione dei target che non sono file reali
 .PHONY: all clean
@@ -29,7 +29,7 @@ $(TARGET): $(OBJ)
 # COMPILAZIONE DEI MODULI (Oggetti)
 # -------------------------------------------------------------------------
 
-main.o: main.c data.h parser.h thread.h memory.h
+main.o: main.c data.h parser.h thread.h memory.h measurement.h
 	$(CC) $(CFLAGS) -c main.c
 
 parser.o: parser.c parser.h data.h
@@ -41,6 +41,8 @@ thread.o: thread.c thread.h data.h
 memory.o: memory.c memory.h data.h
 	$(CC) $(CFLAGS) -c memory.c
 
+measurement.o: measurement.c measurement.h data.h
+	$(CC) $(CFLAGS) -c measurement.c
 # -------------------------------------------------------------------------
 # UTILITY
 # -------------------------------------------------------------------------

@@ -4,5 +4,6 @@
 
 #ifndef SO2_THREAD_H
 #define SO2_THREAD_H
+#include <pthread.h>
 
 #endif //SO2_THREAD_H
