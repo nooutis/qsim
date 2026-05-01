@@ -36,7 +36,7 @@ typedef struct QuantumGate {
 } QuantumGate;
 
 typedef struct GateRegistry {
-    QuantumGate *gate;
+    QuantumGate *gates;
     size_t count;
     size_t capacity;
 } GateRegistry;
@@ -44,7 +44,7 @@ typedef struct GateRegistry {
 typedef struct QuantumCircuit {
     size_t qubits;
     Complex *state_vector;
-    QuantumGate **gates;
+    QuantumGate *gates;
     size_t num_gates;
     int repetitions;
 } QuantumCircuit;
