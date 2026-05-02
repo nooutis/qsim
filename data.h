@@ -26,7 +26,7 @@ Complex complex_prod(Complex a, Complex b); // Prodotto di numeri complessi, i d
 double complex_mod(Complex a); // Modulo di un numero complesso, il numero complesso di cui si calcola il modulo è a
 
 // Operazioni sulle matrici
-void matrix_prod(const Complex *a, const Complex *b, Complex *c, const size_t dim); // Prodotto di due matrici, prende in input le due matrici da moltiplicare, la matrice di output su cui si scrive e la dimensione delle due matrici quadrate
+void matrix_prod(const Complex *a, const Complex *b, Complex *c, size_t dim); // Prodotto di due matrici, prende in input le due matrici da moltiplicare, la matrice di output su cui si scrive e la dimensione delle due matrici quadrate
 void matrix_vector_prod(const Complex *m, const Complex *v_in, Complex *v_out, size_t dim); // Moltiplica una matrice per un vettore, prende in input la matrice da moltiplicare, il vettore da moltiplicare, il vettore di output su cui si scrive e la dimensione della matrice e del vettore
 
 typedef struct QuantumGate {
@@ -46,7 +46,8 @@ typedef struct QuantumCircuit {
     Complex *state_vector;
     QuantumGate *gates;
     size_t num_gates;
-    int repetitions;
+    size_t capacity;
+    size_t repetitions;
 } QuantumCircuit;
 
 #endif //SO2_DATA_H

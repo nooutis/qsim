@@ -6,10 +6,17 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+static int parse_qubits(char *qubits_line, size_t *n);
+static int parse_init(char *init_line, size_t n, Complex *init);
+static int parse_define(char *define_line, GateRegistry *reg, size_t n);
+static int parse_circ(char *circ_line, QuantumCircuit *circ, const GateRegistry *reg);
+static int parse_complex(char *complex_line, Complex *array, size_t n);
+static QuantumGate* find_gate(const GateRegistry *reg, const char *name);
+static int add_gate(QuantumCircuit *circ, const QuantumGate *gate);
 
-int parse_main(int argc, const char *argv[], int *thread_number,
-               QuantumCircuit *circ) {
-  char *end_pointer = NULL;
+
+int parse_main(int argc, const char *argv[], int *thread_number, QuantumCircuit *circ) {
+  char *endptr = NULL;
   char qubits_line[QUBITS_LEN];
   size_t qubits;
 
@@ -32,8 +39,8 @@ int parse_main(int argc, const char *argv[], int *thread_number,
     return 2;
   }
 
-  *thread_number = (int)strtol(argv[3], &end_pointer, 10);
-  if (*end_pointer != '\0' || *thread_number <= 0) {
+  *thread_number = (int)strtol(argv[3], &endptr, 10);
+  if (*endptr != '\0' || *thread_number <= 0) {
     fprintf(stderr, "Il numero di thread deve essere un intero positivo\n");
     fclose(f1);
     fclose(f2);
@@ -82,6 +89,15 @@ int parse_main(int argc, const char *argv[], int *thread_number,
     return 8;
   }
 
+  {
+    size_t init_len = strlen(init_line);
+    while (strchr(init_line, ']') == NULL && init_len < INIT_LEN(qubits) - 1) {
+      if (fgets(init_line + init_len, INIT_LEN(qubits) - init_len, f1) == NULL)
+        break;
+      init_len += strlen(init_line + init_len);
+    }
+  }
+
   if (parse_init(init_line, dim, circ->state_vector) != 0) {
     free(init_line);
     free(circ->state_vector);
@@ -119,6 +135,15 @@ int parse_main(int argc, const char *argv[], int *thread_number,
     if (strncmp(define_line, "#circ", 5) == 0)
       break;
 
+    if (strncmp(define_line, "#define", 7) == 0) {
+      size_t def_len = strlen(define_line);
+      while (strchr(define_line, ']') == NULL && def_len < DEFINE_LEN(qubits) - 1) {
+        if (fgets(define_line + def_len, DEFINE_LEN(qubits) - def_len, f2) == NULL)
+          break;
+        def_len += strlen(define_line + def_len);
+      }
+    }
+
     if (reg.count >= reg.capacity) {
       size_t new_cap = reg.capacity * 2;
       QuantumGate *tmp = realloc(reg.gates, new_cap * sizeof(QuantumGate));
@@ -141,14 +166,26 @@ int parse_main(int argc, const char *argv[], int *thread_number,
     }
   }
 
+  if (strncmp(define_line, "#circ", 5) == 0) {
+    if (parse_circ(define_line, circ, &reg) != 0) {
+      free(define_line);
+      free(reg.gates);
+      return 14;
+    }
+  }
+
   free(define_line);
+  free(reg.gates);
+  for (size_t i = 0; i < reg.count; i++) {
+    free(reg.gates[i].matrix);
+  }
   fclose(f2);
   return 0;
 }
 
 static int parse_qubits(char *qubits_line, size_t *n) {
   char *buffer[2];
-  char *end_pointer = NULL;
+  char *endptr = NULL;
   char *save_pointer;
 
   buffer[0] = strtok_r(qubits_line, " \r\n", &save_pointer);
@@ -158,8 +195,8 @@ static int parse_qubits(char *qubits_line, size_t *n) {
     return 1;
   }
 
-  long val = strtol(buffer[1], &end_pointer, 10);
-  if (*end_pointer != '\0' || val < 0) {
+  long val = strtol(buffer[1], &endptr, 10);
+  if (*endptr != '\0' || val < 0) {
     fprintf(stderr, "Il numero di qubit non è valido\n");
     return 2;
   }
@@ -173,7 +210,7 @@ static int parse_init(char *init_line, size_t n, Complex *init) {
   char *save_pointer;
 
   buffer[0] = strtok_r(init_line, " ", &save_pointer);
-  buffer[1] = strtok_r(NULL, "\n\r", &save_pointer);
+  buffer[1] = strtok_r(NULL, "]", &save_pointer);
   if (buffer[0] == NULL || buffer[1] == NULL) {
     fprintf(stderr, "Errore nel parsing del vettore di init\n");
     return 1;
@@ -185,6 +222,7 @@ static int parse_init(char *init_line, size_t n, Complex *init) {
   }
 
   return parse_complex(buffer[1], init, n);
+
 }
 
 static void print_gate(const QuantumGate *g) {
@@ -207,36 +245,87 @@ static int parse_define(char *define_line, GateRegistry *reg, size_t n) {
 
   char *cmd = strtok_r(define_line, " ", &save_pointer);
   char *name = strtok_r(NULL, " ", &save_pointer);
-  char *matrix_str = strtok_r(NULL, "\n\r", &save_pointer);
+  char *matrix_str = strtok_r(NULL, "]", &save_pointer);
 
   if (cmd == NULL || name == NULL || matrix_str == NULL) {
     fprintf(stderr, "Errore nel parsing dei #define\n");
     return 1;
   }
 
-  QuantumGate *g = &reg->gates[reg->count];
-  strncpy(g->name, name, 31);
-  g->name[31] = '\0';
-  g->dim = n;
+  QuantumGate *gates = &reg->gates[reg->count];
+  strncpy(gates->name, name, 31);
+  gates->name[31] = '\0';
+  gates->dim = n;
 
   size_t total_elements = n * n;
-  g->matrix = malloc(total_elements * sizeof(Complex));
-  if (g->matrix == NULL)
+  gates->matrix = malloc(total_elements * sizeof(Complex));
+  if (gates->matrix == NULL)
     return 3;
 
-  if (parse_complex(matrix_str, g->matrix, total_elements) != 0) {
-    free(g->matrix);
+  if (parse_complex(matrix_str, gates->matrix, total_elements) != 0) {
+    free(gates->matrix);
     return 4;
   }
 
-  print_gate(g);
+  print_gate(gates);
 
   reg->count++;
   return 0;
 }
 
-// static int parse_circ(char *circ_line, QuantumCircuit *circ, GateRegistry
-// *reg);
+static int parse_circ(char *circ_line, QuantumCircuit *circ, const GateRegistry *reg) {
+  char *buffer[2];
+  char *save_pointer;
+  char *endptr;
+  buffer[0] = strtok_r(circ_line, " ", &save_pointer);
+  if (strcmp(buffer[0], "#circ") != 0) {
+    fprintf(stderr, "Formato non valido");
+    return 1;
+  }
+
+
+
+  do {
+    buffer[1] = strtok_r(NULL, " \n", &save_pointer);
+    printf(buffer[1]);
+
+    if (buffer[1] == NULL && circ->num_gates == 0) {
+      fprintf(stderr, "Inserire almeno una porta nel circuito\n");
+      return 2;
+    }
+
+    /*if (strcmp(buffer[1],"measure") == 0) {
+      break;
+    }*/
+
+    QuantumGate *gate = find_gate(reg, buffer[1]);
+
+    if (gate == NULL) {
+      fprintf(stderr, "Porta non travata\n");
+      return 3;
+    }
+
+    if (add_gate(circ, gate) != 0) {
+      return 4;
+    }
+
+  } while (strcmp(buffer[1], "\n") != 0 && strcmp(buffer[1], "measure") != 0 && buffer[1] != NULL);
+  if (strcmp(buffer[1], "measure") == 0) {
+    buffer[0] = buffer[1];
+    buffer[1] = strtok_r(NULL, " ", &save_pointer);
+  }
+
+  long repetitions = strtol(buffer[1], &endptr, 10);
+
+  if (*endptr != '\0' || repetitions < 0) {
+    fprintf(stderr, "Il numero di qubit non è valido\n");
+    return 5;
+  }
+
+  circ->repetitions = repetitions;
+
+  return 0;
+}
 
 static int parse_complex(char *complex_line, Complex *array, size_t n) {
   char *save_pointer;
@@ -244,10 +333,7 @@ static int parse_complex(char *complex_line, Complex *array, size_t n) {
 
   for (size_t i = 0; i < n; i++) {
     if (token == NULL) {
-      fprintf(stderr,
-              "Errore: numero di elementi nel vettore di stato insufficiente "
-              "(attesi %zu)\n",
-              n);
+      fprintf(stderr, "Errore: numero di elementi insufficiente (attesi %zu)\n", n);
       return 1;
     }
 
@@ -287,7 +373,46 @@ static int parse_complex(char *complex_line, Complex *array, size_t n) {
     array[i].real = real;
     array[i].imag = imag;
 
-    token = strtok_r(NULL, " ([],)\r\n", &save_pointer);
+    token = strtok_r(NULL, " ([]),\r\n ", &save_pointer);
   }
+  return 0;
+}
+
+static QuantumGate* find_gate(const GateRegistry *reg, const char *name) {
+  for (size_t i = 0; i < reg->count; i++) {
+    if (strcmp(reg->gates[i].name, name) == 0) {
+      return &reg->gates[i];
+    }
+  }
+  return NULL;
+}
+
+static int add_gate(QuantumCircuit *circ, const QuantumGate *gate) {
+  if (circ->num_gates >= circ->capacity) {
+    size_t new_cap = (circ->capacity == 0) ? 4 : circ->capacity * 2;
+    QuantumGate *tmp = realloc(circ->gates, new_cap * sizeof(QuantumGate));
+    if (tmp == NULL) {
+      fprintf(stderr, "Errore di allocazione per i gate del circuito\n");
+      return 1;
+    }
+    circ->gates = tmp;
+    circ->capacity = new_cap;
+  }
+
+  QuantumGate *new_gate = &circ->gates[circ->num_gates];
+  strncpy(new_gate->name, gate->name, 31);
+  new_gate->name[31] = '\0';
+  new_gate->dim = gate->dim;
+
+  size_t total_elements = gate->dim * gate->dim;
+  new_gate->matrix = malloc(total_elements * sizeof(Complex));
+  if (new_gate->matrix == NULL) {
+    fprintf(stderr, "Errore di allocazione per la matrice del gate nel circuito\n");
+    return 2;
+  }
+
+  memcpy(new_gate->matrix, gate->matrix, total_elements * sizeof(Complex));
+
+  circ->num_gates++;
   return 0;
 }
