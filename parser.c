@@ -3,6 +3,7 @@
 //
 
 #include "parser.h"
+#include "memory.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -13,6 +14,7 @@ static int parse_circ(char *circ_line, QuantumCircuit *circ, const GateRegistry 
 static int parse_complex(char *complex_line, Complex *array, size_t n);
 static QuantumGate* find_gate(const GateRegistry *reg, const char *name);
 static int add_gate(QuantumCircuit *circ, const QuantumGate *gate);
+
 
 
 int parse_main(int argc, const char *argv[], int *thread_number, QuantumCircuit *circ) {
@@ -59,6 +61,7 @@ int parse_main(int argc, const char *argv[], int *thread_number, QuantumCircuit 
     fclose(f2);
     return 5;
   }
+
   circ->qubits = qubits;
   size_t dim = DIM(qubits);
 
@@ -110,9 +113,7 @@ int parse_main(int argc, const char *argv[], int *thread_number, QuantumCircuit 
   free(init_line);
   fclose(f1);
 
-  GateRegistry reg;
-  reg.count = 0;
-  reg.capacity = 4;
+  GateRegistry reg = {NULL, 0, 4};
   reg.gates = malloc(reg.capacity * sizeof(QuantumGate));
   if (reg.gates == NULL) {
     fprintf(stderr, "Errore di allocazione del registro dei gate\n");
@@ -123,7 +124,7 @@ int parse_main(int argc, const char *argv[], int *thread_number, QuantumCircuit 
   char *define_line = malloc(DEFINE_LEN(qubits));
   if (define_line == NULL) {
     fprintf(stderr, "Errore di allocazione per define_line\n");
-    free(reg.gates);
+    free_reg(&reg);
     fclose(f2);
     return 11;
   }
@@ -150,7 +151,7 @@ int parse_main(int argc, const char *argv[], int *thread_number, QuantumCircuit 
       if (tmp == NULL) {
         fprintf(stderr, "Errore nella riallocazione del registro dei gate\n");
         free(define_line);
-        free(reg.gates);
+        free_reg(&reg);
         fclose(f2);
         return 12;
       }
@@ -160,7 +161,7 @@ int parse_main(int argc, const char *argv[], int *thread_number, QuantumCircuit 
 
     if (parse_define(define_line, &reg, dim) != 0) {
       free(define_line);
-      free(reg.gates);
+      free_reg(&reg);
       fclose(f2);
       return 13;
     }
@@ -168,17 +169,14 @@ int parse_main(int argc, const char *argv[], int *thread_number, QuantumCircuit 
 
   if (strncmp(define_line, "#circ", 5) == 0) {
     if (parse_circ(define_line, circ, &reg) != 0) {
+      free_reg(&reg);
       free(define_line);
-      free(reg.gates);
       return 14;
     }
   }
 
+  free_reg(&reg);
   free(define_line);
-  free(reg.gates);
-  for (size_t i = 0; i < reg.count; i++) {
-    free(reg.gates[i].matrix);
-  }
   fclose(f2);
   return 0;
 }
@@ -274,56 +272,38 @@ static int parse_define(char *define_line, GateRegistry *reg, size_t n) {
 }
 
 static int parse_circ(char *circ_line, QuantumCircuit *circ, const GateRegistry *reg) {
-  char *buffer[2];
   char *save_pointer;
-  char *endptr;
-  buffer[0] = strtok_r(circ_line, " ", &save_pointer);
-  if (strcmp(buffer[0], "#circ") != 0) {
-    fprintf(stderr, "Formato non valido");
-    return 1;
-  }
+  char *token;
 
+  strtok_r(circ_line, " ", &save_pointer); // Skip "#circ"
 
-
-  do {
-    buffer[1] = strtok_r(NULL, " \n", &save_pointer);
-    printf(buffer[1]);
-
-    if (buffer[1] == NULL && circ->num_gates == 0) {
-      fprintf(stderr, "Inserire almeno una porta nel circuito\n");
-      return 2;
+  while ((token = strtok_r(NULL, " \t\n\r", &save_pointer)) != NULL) {
+    if (strcmp(token, "measure") == 0) {
+      token = strtok_r(NULL, " \t\n\r", &save_pointer);
+      if (token == NULL) {
+        fprintf(stderr, "Errore: Inserire il numero di ripetizioni\n");
+        return 2;
+      }
+      char *endptr;
+      circ->repetitions = strtol(token, &endptr, 10);
+      return (*endptr == '\0') ? 0 : 4;
     }
 
-    /*if (strcmp(buffer[1],"measure") == 0) {
-      break;
-    }*/
-
-    QuantumGate *gate = find_gate(reg, buffer[1]);
-
+    QuantumGate *gate = find_gate(reg, token);
     if (gate == NULL) {
-      fprintf(stderr, "Porta non travata\n");
+      // Try if it's a numeric repetition without "measure"
+      char *endptr;
+      long reps = strtol(token, &endptr, 10);
+      if (*endptr == '\0' && reps >= 0) {
+        circ->repetitions = (size_t)reps;
+        return 0;
+      }
+      fprintf(stderr, "Porta non trovata: %s\n", token);
       return 3;
     }
 
-    if (add_gate(circ, gate) != 0) {
-      return 4;
-    }
-
-  } while (strcmp(buffer[1], "\n") != 0 && strcmp(buffer[1], "measure") != 0 && buffer[1] != NULL);
-  if (strcmp(buffer[1], "measure") == 0) {
-    buffer[0] = buffer[1];
-    buffer[1] = strtok_r(NULL, " ", &save_pointer);
+    if (add_gate(circ, gate) != 0) return 4;
   }
-
-  long repetitions = strtol(buffer[1], &endptr, 10);
-
-  if (*endptr != '\0' || repetitions < 0) {
-    fprintf(stderr, "Il numero di qubit non è valido\n");
-    return 5;
-  }
-
-  circ->repetitions = repetitions;
-
   return 0;
 }
 
@@ -338,41 +318,23 @@ static int parse_complex(char *complex_line, Complex *array, size_t n) {
     }
 
     double real = 0, imag = 0;
-    char *endptr;
+    char *endptr, *endptr2;
 
-    if (*token == '+')
-      token++;
-
-    if (*token == 'i') {
-      imag = strtod(token + 1, &endptr);
-      if (endptr == token + 1)
-        imag = 1.0;
-    } else if (*token == '-' && *(token + 1) == 'i') {
-      imag = strtod(token + 2, &endptr);
-      if (endptr == token + 2)
-        imag = 1.0;
-      imag = -imag;
-    } else {
-      real = strtod(token, &endptr);
-      if (*endptr == '+' || *endptr == '-') {
-        char sign = *endptr;
-        if (*(endptr + 1) == 'i') {
-          char *endptr2;
-          imag = strtod(endptr + 2, &endptr2);
-          if (endptr2 == endptr + 2)
-            imag = 1.0;
-          if (sign == '-')
-            imag = -imag;
-        }
-      } else if (*endptr == 'i') {
-        imag = real;
-        real = 0;
+    real = strtod(token, &endptr);
+    if (*endptr == '+' || *endptr == '-') {
+      char sign = *endptr;
+      char *next = endptr + 1;
+      if (*next == 'i') {
+        imag = strtod(next + 1, &endptr2);
+        if (endptr2 == next + 1) imag = 1.0;
+      } else {
+        imag = strtod(next, &endptr2);
       }
+      if (sign == '-') imag = -imag;
     }
 
     array[i].real = real;
     array[i].imag = imag;
-
     token = strtok_r(NULL, " ([]),\r\n ", &save_pointer);
   }
   return 0;
@@ -416,3 +378,4 @@ static int add_gate(QuantumCircuit *circ, const QuantumGate *gate) {
   circ->num_gates++;
   return 0;
 }
+
