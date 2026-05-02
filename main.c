@@ -2,12 +2,10 @@
 #include "memory.h"
 #include "parser.h"
 
-
-
 void print_circuit(const QuantumCircuit *circ) {
     printf("--- Quantum Circuit Details ---\n");
     printf("Qubits: %zu (Dimension: %zu)\n", circ->qubits, DIM(circ->qubits));
-    
+
     printf("Initial State Vector:\n  [ ");
     for (size_t i = 0; i < DIM(circ->qubits); i++) {
         printf("%.2f+i%.2f ", circ->state_vector[i].real, circ->state_vector[i].imag);

@@ -1,2 +1,9 @@
-*.o
-./qsim
+qsim
+main.o
+measurement.o
+memory.o
+parser.o
+/custom_examples
+/main.dSYM
+/qsim-2026-06-esempi
+/tests
