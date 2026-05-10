@@ -97,10 +97,11 @@ int main(const int argc, const char *argv[]) {
    monothread(circuit, v_out);
     print_vector(v_out, DIM(circuit.qubits));
   }
-  if (thread_number > 2) {
+  if (thread_number > 1) {
     multithread(circuit, v_out, thread_number);
     print_vector(v_out, DIM(circuit.qubits));
   }
   cleanup_circuit(&circuit);
+  free(v_out);
   return 0;
 }

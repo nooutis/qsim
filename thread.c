@@ -234,26 +234,62 @@ int monothread(QuantumCircuit circuit, Complex *v_out) {
 int multithread(QuantumCircuit circ, Complex *v_out, int num_threads) {
     size_t dim = DIM(circ.qubits);
     size_t mat_size = dim * dim;
+
+    if (circ.num_gates == 0) {
+        for (size_t i = 0; i < dim; i++) {
+            v_out[i] = circ.state_vector[i];
+        }
+        return 0;
+    }
+
     MultiplicationTask task = {NULL, 0};
     generate_multiplication_task(circ, &task);
-    size_t num_tasks = task.num_tasks;
     ThreadPool *tm = tpool_create(num_threads);
-    for (size_t i = num_tasks; i > 1; i = divide2(i)) {
-       MultiplicationTask temp_task = allocate_matrix_tasks(i, mat_size);
-        size_t index[2] = {temp_task.num_tasks, temp_task.num_tasks - 1};
-        for (size_t j = 1; j < temp_task.num_tasks; j++) {
-            MatrixMatrixTask arg = create_matrix_matrix_task(task.matrix[index[0]].matrix, task.matrix[index[1]].matrix, temp_task.matrix[j].matrix, dim);
-            tpool_add_work(tm, execute_matrix_matrix_prod,&arg);
-            if (index[1] > 1) { index[0]-=2; index[1]-=2; }
-            if (index[1] == 1) { temp_task.matrix[0].matrix = task.matrix[0].matrix; }
+
+    int is_first_task = 1;
+
+    while (task.num_tasks > 1) {
+        size_t num_pairs = task.num_tasks / 2;
+        size_t remaining = task.num_tasks % 2;
+        size_t next_num_tasks = num_pairs + remaining;
+
+        MultiplicationTask next_task = allocate_matrix_tasks(next_num_tasks, mat_size);
+        MatrixMatrixTask *args = malloc(sizeof(MatrixMatrixTask) * num_pairs);
+
+        for (size_t i = 0; i < num_pairs; i++) {
+            args[i] = create_matrix_matrix_task(task.matrix[2 * i + 1].matrix, task.matrix[2 * i].matrix, next_task.matrix[i].matrix, dim);
+            tpool_add_work(tm, execute_matrix_matrix_prod, &args[i]);
         }
-        reallocate_matrix_tasks(&task, i, mat_size);
-        task = temp_task;
-        free_matrix_tasks(&temp_task);
+
+        if (remaining) {
+            memcpy(next_task.matrix[num_pairs].matrix, task.matrix[task.num_tasks - 1].matrix, sizeof(Complex) * mat_size);
+        }
+
+        tpool_wait(tm);
+        free(args);
+
+        if (is_first_task) {
+            free(task.matrix);
+            is_first_task = 0;
+        } else {
+            free_matrix_tasks(&task);
+        }
+
+        task = next_task;
     }
-    MatrixVectorTask arg = create_matrix_vector_task(task.matrix[0].matrix, circ.state_vector, v_out, dim);
-    tpool_add_work(tm, execute_matrix_vector_prod,&arg);
-    free_matrix_tasks(&task);
+
+    MatrixVectorTask *arg_vec = malloc(sizeof(MatrixVectorTask));
+    *arg_vec = create_matrix_vector_task(task.matrix[0].matrix, circ.state_vector, v_out, dim);
+    tpool_add_work(tm, execute_matrix_vector_prod, arg_vec);
+    tpool_wait(tm);
+    free(arg_vec);
+
+    if (is_first_task) {
+        free(task.matrix);
+    } else {
+        free_matrix_tasks(&task);
+    }
+
     tpool_destroy(tm);
     return 0;
 }

@@ -70,5 +70,4 @@ void free_matrix_tasks(MultiplicationTask *task) {
          free(task->matrix[i].matrix);
      }
      free(task->matrix);
-     free(task);
  }
