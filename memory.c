@@ -6,7 +6,7 @@
 #include "memory.h"
 
 #include <stdlib.h>
-#include <_stdio.h>
+#include <stdio.h>
 
 void free_reg(const GateRegistry *reg) {
     for (size_t i = 0; i < reg->count; i++) {
@@ -65,7 +65,7 @@ int reallocate_matrix_tasks(MultiplicationTask *task, size_t new_num_tasks, size
     return 0;
  }
 
-void free_matrix_tasks(MultiplicationTask *task) {
+void free_matrix_tasks(const MultiplicationTask *task) {
      for (size_t i = 0; i < task->num_tasks; i++) {
          free(task->matrix[i].matrix);
      }

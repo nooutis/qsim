@@ -4,6 +4,7 @@
 
 #ifndef SO2_PARSER_H
 #define SO2_PARSER_H
+
 #include "data.h"
 
 #define QUBITS_LEN    32

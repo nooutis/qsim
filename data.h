@@ -5,7 +5,9 @@
 #ifndef SO2_DATA_H
 #define SO2_DATA_H
 
-#include <stddef.h>
+#include <gsl/gsl_randist.h>
+
+#include "thread.h"
 
 #define GET_INDEX(row, col, dim) (((row) * (dim)) + (col))
 
@@ -60,21 +62,40 @@ typedef struct MatrixMatrixTask {
     size_t dim;
 } MatrixMatrixTask;
 
-Complex complex_add(Complex a, Complex b); // Somma di numeri complessi, i due addendi sono a e b
-Complex complex_prod(Complex a, Complex b); // Prodotto di numeri complessi, i due moltiplicandi sono a e b
-double complex_mod(Complex a); // Modulo di un numero complesso, il numero complesso di cui si calcola il modulo è a
+typedef struct ComplexModTask {
+    const Complex *a;
+    double *res;
+} ComplexModTask;
 
-void matrix_prod(const Complex *a, const Complex *b, Complex *c, size_t dim); // Prodotto di due matrici, prende in input le due matrici da moltiplicare, la matrice di output su cui si scrive e la dimensione delle due matrici quadrate
-void matrix_vector_prod(const Complex *m, const Complex *v_in, Complex *v_out, size_t dim); // Moltiplica una matrice per un vettore, prende in input la matrice da moltiplicare, il vettore da moltiplicare, il vettore di output su cui si scrive e la dimensione della matrice e del vettore
+typedef struct SampleTask {
+    gsl_rng *r;
+    gsl_ran_discrete_t *g;
+    size_t *counts;
+    pthread_mutex_t *mutex;
+} SampleTask;
+
+Complex complex_add(Complex a, Complex b);
+Complex complex_prod(Complex a, Complex b);
+double complex_square_mod(Complex a);
+
+void matrix_prod(const Complex *a, const Complex *b, Complex *c, size_t dim);
+void matrix_vector_prod(const Complex *m, const Complex *v_in, Complex *v_out, size_t dim);
+
 void execute_matrix_matrix_prod(void *arg);
 MatrixMatrixTask create_matrix_matrix_task(Complex *a, Complex *b, Complex *c, size_t dim);
 void execute_matrix_vector_prod(void *arg);
 MatrixVectorTask create_matrix_vector_task(Complex *m, Complex *v_in, Complex *v_out, size_t dim);
-
+void execute_complex_mod(void *arg);
+ComplexModTask create_complex_mod_task(const Complex *a, double *res);
+void execute_sample_task(void *arg);
+SampleTask create_sample_task(gsl_rng *r, gsl_ran_discrete_t *g, size_t *counts, pthread_mutex_t *mutex);
 
 int generate_multiplication_task(QuantumCircuit circ, MultiplicationTask *task);
 size_t divide2(size_t dividend);
 
+int calculate_circuit(QuantumCircuit circ, Complex *v_out, size_t num_threads, ThreadPool *tm);
+int multithread(QuantumCircuit circ, Complex *v_out, size_t num_threads, size_t repetitions);
 
+void print_vector(const Complex *vector, size_t size);
 
 #endif //SO2_DATA_H

@@ -15,8 +15,6 @@ static int parse_complex(char *complex_line, Complex *array, size_t n);
 static QuantumGate* find_gate(const GateRegistry *reg, const char *name);
 static int add_gate(QuantumCircuit *circ, const QuantumGate *gate);
 
-
-
 int parse_main(int argc, const char *argv[], int *thread_number, QuantumCircuit *circ) {
   char *endptr = NULL;
   char qubits_line[QUBITS_LEN];
@@ -223,21 +221,6 @@ static int parse_init(char *init_line, size_t n, Complex *init) {
 
 }
 
-static void print_gate(const QuantumGate *g) {
-  printf("Gate: %s (%zux%zu)\n", g->name, g->dim, g->dim);
-  for (size_t row = 0; row < g->dim; row++) {
-    printf("  [ ");
-    for (size_t col = 0; col < g->dim; col++) {
-      const Complex *c = &g->matrix[row * g->dim + col];
-      if (c->imag >= 0)
-        printf("%8.5f+i%7.5f ", c->real, c->imag);
-      else
-        printf("%8.5f-i%7.5f ", c->real, -c->imag);
-    }
-    printf("]\n");
-  }
-}
-
 static int parse_define(char *define_line, GateRegistry *reg, size_t n) {
   char *save_pointer;
 
@@ -265,8 +248,6 @@ static int parse_define(char *define_line, GateRegistry *reg, size_t n) {
     return 4;
   }
 
-  print_gate(gates);
-
   reg->count++;
   return 0;
 }
@@ -291,7 +272,6 @@ static int parse_circ(char *circ_line, QuantumCircuit *circ, const GateRegistry 
 
     QuantumGate *gate = find_gate(reg, token);
     if (gate == NULL) {
-      // Try if it's a numeric repetition without "measure"
       char *endptr;
       long reps = strtol(token, &endptr, 10);
       if (*endptr == '\0' && reps >= 0) {

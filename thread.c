@@ -2,14 +2,11 @@
 // Created by Charlie Carretta on 29/04/2026.
 //
 
-#include "thread.h"
-
-#include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
-#include <unistd.h>
 
-#include "memory.h"
+#include "thread.h"
+#include "data.h"
+#include "measurement.h"
 
 static void *tpool_worker(void *arg);
 static ThreadPoolWork *tpool_work_create(thread_func_t func, void *arg);
@@ -18,12 +15,10 @@ static ThreadPoolWork *tpool_work_get(ThreadPool *tm);
 
 
 static ThreadPoolWork *tpool_work_create(thread_func_t func, void *arg) {
-    ThreadPoolWork *work;
-
     if (func == NULL)
         return NULL;
 
-    work       = malloc(sizeof(*work));
+    ThreadPoolWork *work = malloc(sizeof(*work));
     work->func = func;
     work->arg  = arg;
     work->next = NULL;
@@ -37,12 +32,12 @@ static void tpool_work_destroy(ThreadPoolWork *work) {
 }
 
 static ThreadPoolWork *tpool_work_get(ThreadPool *tm) {
-    ThreadPoolWork *work;
 
     if (tm == NULL)
         return NULL;
 
-    work = tm->work_first;
+    ThreadPoolWork *work = tm->work_first;
+
     if (work == NULL)
         return NULL;
 
@@ -59,7 +54,6 @@ static ThreadPoolWork *tpool_work_get(ThreadPool *tm) {
 static void *tpool_worker(void *arg)
 {
     ThreadPool      *tm = arg;
-    ThreadPoolWork *work;
 
     while (1) {
         pthread_mutex_lock(&(tm->work_mutex));
@@ -70,7 +64,7 @@ static void *tpool_worker(void *arg)
         if (tm->stop)
             break;
 
-        work = tpool_work_get(tm);
+        ThreadPoolWork *work = tpool_work_get(tm);
         tm->working_cnt++;
         pthread_mutex_unlock(&(tm->work_mutex));
 
@@ -94,14 +88,12 @@ static void *tpool_worker(void *arg)
 
 ThreadPool *tpool_create(size_t num)
 {
-    ThreadPool   *tm;
     pthread_t  thread;
-    size_t     i;
 
     if (num == 0)
         num = 2;
 
-    tm             = calloc(1, sizeof(*tm));
+    ThreadPool *tm = calloc(1, sizeof(*tm));
     tm->thread_cnt = num;
 
     pthread_mutex_init(&(tm->work_mutex), NULL);
@@ -111,7 +103,7 @@ ThreadPool *tpool_create(size_t num)
     tm->work_first = NULL;
     tm->work_last  = NULL;
 
-    for (i=0; i<num; i++) {
+    for (size_t i=0; i<num; i++) {
         pthread_create(&thread, NULL, tpool_worker, tm);
         pthread_detach(thread);
     }
@@ -121,14 +113,13 @@ ThreadPool *tpool_create(size_t num)
 
 void tpool_destroy(ThreadPool *tm)
 {
-    ThreadPoolWork *work;
-    ThreadPoolWork *work2;
 
     if (tm == NULL)
         return;
 
     pthread_mutex_lock(&(tm->work_mutex));
-    work = tm->work_first;
+    ThreadPoolWork *work = tm->work_first;
+    ThreadPoolWork *work2 = NULL;
     while (work != NULL) {
         work2 = work->next;
         tpool_work_destroy(work);
@@ -150,12 +141,12 @@ void tpool_destroy(ThreadPool *tm)
 
 bool tpool_add_work(ThreadPool *tm, thread_func_t func, void *arg)
 {
-    ThreadPoolWork *work;
+
 
     if (tm == NULL)
         return false;
 
-    work = tpool_work_create(func, arg);
+    ThreadPoolWork *work = tpool_work_create(func, arg);
     if (work == NULL)
         return false;
 
@@ -190,121 +181,21 @@ void tpool_wait(ThreadPool *tm)
     pthread_mutex_unlock(&(tm->work_mutex));
 }
 
-int monothread(QuantumCircuit circuit, Complex *v_out) {
-    size_t dim = DIM(circuit.qubits);
-    size_t mat_size = dim * dim;
-    Complex *res = malloc(sizeof(Complex) * mat_size);
-    Complex *temp = malloc(sizeof(Complex) * mat_size);
-
-    if (res == NULL || temp == NULL) {
-        fprintf(stderr, "Error: Memory allocation failed for matrices.\n");
+int multithread(QuantumCircuit circ, Complex *v_out, size_t num_threads, size_t repetitions) {
+    ThreadPool *tm = tpool_create(num_threads);
+    if (calculate_circuit(circ, v_out, num_threads, tm) != 0) {
         return 1;
     }
-
-    if (circuit.num_gates > 0) {
-        memcpy(res, circuit.gates[0].matrix, sizeof(Complex) * mat_size);
-
-        for (size_t i = 1; i < circuit.num_gates; i++) {
-            matrix_prod(circuit.gates[i].matrix, res, temp, dim);
-            memcpy(res, temp, sizeof(Complex) * mat_size);
-        }
-    } else {
-
-        for (size_t i = 0; i < dim; i++) {
-            for (size_t j = 0; j < dim; j++) {
-                res[GET_INDEX(i, j, dim)] =
-                    (i == j) ? (Complex){1.0, 0.0} : (Complex){0.0, 0.0};
-            }
-        }
-    }
-
-    if (v_out == NULL) {
-        fprintf(stderr, "Vettore di output non valido \n");
-        free(res);
-        free(temp);
-        return 1;
-    }
-
-    matrix_vector_prod(res, circuit.state_vector, v_out, dim);
-    free(res);
-    free(temp);
-    return 0;
-}
-
-int multithread(QuantumCircuit circ, Complex *v_out, int num_threads) {
-    size_t dim = DIM(circ.qubits);
-    size_t mat_size = dim * dim;
-
-    if (circ.num_gates == 0) {
-        for (size_t i = 0; i < dim; i++) {
-            v_out[i] = circ.state_vector[i];
-        }
+    if (circ.repetitions == 0) {
+        print_vector(v_out, DIM(circ.qubits));
+        tpool_destroy(tm);
         return 0;
     }
-
-    MultiplicationTask task = {NULL, 0};
-    generate_multiplication_task(circ, &task);
-    ThreadPool *tm = tpool_create(num_threads);
-
-    int is_first_task = 1;
-
-    while (task.num_tasks > 1) {
-        size_t num_pairs = task.num_tasks / 2;
-        size_t remaining = task.num_tasks % 2;
-        size_t next_num_tasks = num_pairs + remaining;
-
-        MultiplicationTask next_task = allocate_matrix_tasks(next_num_tasks, mat_size);
-        MatrixMatrixTask *args = malloc(sizeof(MatrixMatrixTask) * num_pairs);
-
-        for (size_t i = 0; i < num_pairs; i++) {
-            args[i] = create_matrix_matrix_task(task.matrix[2 * i + 1].matrix, task.matrix[2 * i].matrix, next_task.matrix[i].matrix, dim);
-            tpool_add_work(tm, execute_matrix_matrix_prod, &args[i]);
-        }
-
-        if (remaining) {
-            memcpy(next_task.matrix[num_pairs].matrix, task.matrix[task.num_tasks - 1].matrix, sizeof(Complex) * mat_size);
-        }
-
-        tpool_wait(tm);
-        free(args);
-
-        if (is_first_task) {
-            free(task.matrix);
-            is_first_task = 0;
-        } else {
-            free_matrix_tasks(&task);
-        }
-
-        task = next_task;
+    if (measure_circuit(v_out, num_threads, repetitions, DIM(circ.qubits), tm) != 0) {
+        return 2;
     }
-
-    MatrixVectorTask *arg_vec = malloc(sizeof(MatrixVectorTask));
-    *arg_vec = create_matrix_vector_task(task.matrix[0].matrix, circ.state_vector, v_out, dim);
-    tpool_add_work(tm, execute_matrix_vector_prod, arg_vec);
-    tpool_wait(tm);
-    free(arg_vec);
-
-    if (is_first_task) {
-        free(task.matrix);
-    } else {
-        free_matrix_tasks(&task);
-    }
-
     tpool_destroy(tm);
     return 0;
-}
-
-void worker(void *arg)
-{
-    int *val = arg;
-    int  old = *val;
-
-    *val += 1000;
-    printf("tid=%p, old=%d, val=%d\n", pthread_self(), old, *val);
-
-    if (*val%2)
-        usleep(1000000);
-    //printf("Prova");
 }
 
 /*int main()
