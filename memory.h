@@ -1,6 +1,4 @@
-//
-// Created by Charlie Carretta on 29/04/2026.
-//
+// File memory.h, contiene le funzioni di gestione della memoria
 
 #ifndef SO2_MEMORY_H
 #define SO2_MEMORY_H

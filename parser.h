@@ -1,6 +1,4 @@
-//
-// Created by Charlie Carretta on 29/04/2026.
-//
+// File parser.h, contiene la funzione principale di parsing
 
 #ifndef SO2_PARSER_H
 #define SO2_PARSER_H
